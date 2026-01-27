@@ -1,0 +1,28 @@
+# Core dependencies
+fastapi>=0.128.0
+uvicorn[standard]>=0.39.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.2.0
+
+# RAG dependencies
+langchain>=0.3.0
+langchain-openai>=0.3.0
+langchain-community>=0.3.0
+langchain-huggingface>=0.1.0
+langchain-chroma>=0.2.0
+chromadb>=1.0.0
+openai>=2.0.0
+sentence-transformers>=5.0.0
+
+# Reranking
+flashrank>=0.2.0
+
+# Code parsing (optional, for future use)
+gitpython>=3.1.46
+
+# Utilities
+tiktoken>=0.5.0
+python-multipart>=0.0.20
+aiofiles>=25.1.0
+httpx>=0.27.0

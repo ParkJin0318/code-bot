@@ -10,7 +10,7 @@ RAG 기반 코드베이스 Q&A 봇
 ### 주요 기능
 
 - **코드베이스 Q&A**: 코드 동작 방식, 정책, 구현 세부사항에 대한 질문 답변
-- **Analytics 이벤트 분석**: 이벤트 데이터 조회 + 코드에서 해당 이벤트 발송 시점 설명
+- **Confluence 문서 검색**: 질문과 관련된 Confluence 문서를 자동으로 검색하여 관련 문서로 제공
 
 ## 기술 스택
 
@@ -22,20 +22,17 @@ RAG 기반 코드베이스 Q&A 봇
 | 리랭킹 | FlashRank |
 | LLM | OpenAI 호환 API |
 | 프레임워크 | LangChain |
+| 문서 검색 | Atlassian Confluence (n8n Gateway) |
 
 ## 동작 흐름
 
 ### 코드베이스 Q&A
 
 ```
-[질문] → [한국어→영어 번역] → [벡터 검색 top K] → [리랭킹 top N] → [답변 생성]
+[질문] → [키워드 추출] → [Confluence 검색] → [LLM 관련성 필터링] → [한국어→영어 번역] → [벡터 검색 top K] → [리랭킹 top N] → [답변 생성]
 ```
 
-### Analytics 이벤트 분석
-
-```
-[질문] → [이벤트명 추출] → [Analytics 데이터 조회] + [코드베이스 검색] → [통합 답변 생성]
-```
+답변에는 참고한 코드 파일과 관련 Confluence 문서 링크가 포함됩니다.
 
 ---
 
@@ -147,32 +144,10 @@ curl -X POST http://localhost:8000/api/codebase \
 ```json
 {
   "answer": "비밀번호 변경 팝업은...",
-  "sources": ["app/src/main/java/PasswordPolicy.kt"]
-}
-```
-
-### POST /api/analytics
-
-이벤트 데이터 분석 + 코드 설명
-
-```bash
-curl -X POST http://localhost:8000/api/analytics \
-  -H "Content-Type: application/json" \
-  -d '{"question": "screen_view_home 이벤트 분석해줘", "days": 7}'
-```
-
-**Request Body**
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| `question` | string | Y | 분석할 이벤트 관련 질문 |
-| `days` | int | N | 분석 기간 (1-90일, 기본: 7) |
-
-**Response**
-```json
-{
-  "answer": "📊 *이벤트 데이터 분석*\n...",
-  "sources": ["app/src/main/kotlin/EventTracker.kt"],
-  "event_name": "screen_view_home"
+  "sources": ["app/src/main/java/PasswordPolicy.kt"],
+  "documents": [
+    {"title": "비밀번호 정책 가이드", "url": "https://..."}
+  ]
 }
 ```
 
@@ -186,20 +161,20 @@ code-bot/
 │   ├── main.py              # FastAPI 앱 엔트리포인트
 │   ├── config.py            # 환경 설정 (Pydantic Settings)
 │   ├── api/
-│   │   └── routes.py        # API 엔드포인트 (/codebase, /analytics, /health)
+│   │   └── routes.py        # API 엔드포인트 (/codebase, /health)
 │   ├── core/
 │   │   ├── index.py         # CodebaseIndexer - 코드베이스 인덱싱
 │   │   └── search.py        # CodebaseSearch - 벡터 검색 + 리랭킹
 │   ├── services/
 │   │   ├── codebase/
 │   │   │   └── answer.py    # CodebaseAnswerGenerator - 코드 Q&A 답변 생성
-│   │   └── analytics/
-│   │       ├── answer.py    # AnalyticsAnswerGenerator - 이벤트 분석 답변 생성
-│   │       └── data_source.py  # AnalyticsDataSource - 외부 Analytics API 연동
+│   │   └── atlassian/
+│   │       ├── __init__.py
+│   │       └── data_source.py  # AtlassianDataSource - Confluence 검색 (n8n Gateway)
 │   └── prompts/
 │       ├── base.py          # 공통 프롬프트 (Slack 포맷, 보안 규칙, 가이드라인)
 │       ├── codebase.py      # 코드베이스 Q&A 프롬프트
-│       └── analytics.py     # Analytics 분석 프롬프트
+│       └── keyword.py       # 키워드 추출 및 문서 관련성 판단 프롬프트
 ├── scripts/
 │   └── build_index.py       # 인덱싱 CLI 스크립트
 ├── data/chroma/             # 벡터 DB 저장소 (gitignored)
@@ -247,11 +222,13 @@ code-bot/
 | `COLLECTION_NAME` | ChromaDB 컬렉션 이름 | `my-app-codebase` |
 | `CHROMA_DB_PATH` | ChromaDB 저장 경로 | `./data/chroma` |
 
-### Analytics 설정
+### Atlassian 설정
 
 | 변수 | 설명 | 예시 |
 |------|------|------|
-| `ANALYTICS_GATEWAY_URL` | Analytics 데이터 게이트웨이 URL | `https://analytics-gateway.example.com` |
+| `ATLASSIAN_GATEWAY_URL` | n8n Atlassian Gateway 웹훅 URL | `https://your-n8n.example.com/webhook/atlassian-gateway` |
+
+> **참고**: `ATLASSIAN_GATEWAY_URL`을 설정하지 않으면 Confluence 문서 검색 기능이 비활성화됩니다.
 
 ### API 설정
 

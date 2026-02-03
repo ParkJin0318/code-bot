@@ -10,9 +10,9 @@ from app.prompts.base import (
     extract_sources,
 )
 from app.prompts.codebase import CODEBASE_PROMPT
-from app.prompts.analytics import (
-    EVENT_EXTRACTION_PROMPT,
-    ANALYTICS_PROMPT,
+from app.prompts.keyword import (
+    KEYWORD_EXTRACTION_PROMPT,
+    DOCUMENT_RELEVANCE_PROMPT,
 )
 
 __all__ = [
@@ -26,6 +26,6 @@ __all__ = [
     "format_context",
     "extract_sources",
     "CODEBASE_PROMPT",
-    "EVENT_EXTRACTION_PROMPT",
-    "ANALYTICS_PROMPT",
+    "KEYWORD_EXTRACTION_PROMPT",
+    "DOCUMENT_RELEVANCE_PROMPT",
 ]

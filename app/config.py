@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     log_level: str
 
-    analytics_gateway_url: str
+    atlassian_gateway_url: str = ""
 
     class Config:
         env_file = ".env"

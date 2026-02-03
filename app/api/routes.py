@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 from app.core.search import get_search
 from app.services.codebase.answer import get_codebase_answer_generator
-from app.services.analytics.answer import get_analytics_answer_generator
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +27,22 @@ class CodebaseRequest(BaseModel):
         }
 
 
+class ConfluenceDocumentResponse(BaseModel):
+    title: str = Field(..., description="Document title")
+    url: str = Field(..., description="Document URL")
+
+
 class CodebaseResponse(BaseModel):
     answer: str = Field(..., description="Generated answer to the question")
     sources: List[str] = Field(default_factory=list, description="List of source files referenced")
+    documents: List[ConfluenceDocumentResponse] = Field(default_factory=list, description="Related Confluence documents")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "answer": "MainActivity is the entry point of the Android application...",
                 "sources": ["app/src/main/java/com/example/MainActivity.java"],
+                "documents": [{"title": "Architecture Guide", "url": "https://..."}],
             }
         }
 
@@ -56,6 +62,7 @@ async def codebase_query(request: CodebaseRequest) -> CodebaseResponse:
                 return CodebaseResponse(
                     answer="죄송해요, 관련된 코드를 찾지 못했어요. 다른 키워드로 질문해주시겠어요?",
                     sources=[],
+                    documents=[],
                 )
             logger.info(f"Successfully retrieved {len(documents)} documents")
         except Exception as e:
@@ -75,7 +82,11 @@ async def codebase_query(request: CodebaseRequest) -> CodebaseResponse:
                 detail="Failed to generate answer. Check LLM API availability.",
             ) from e
 
-        return CodebaseResponse(answer=result["answer"], sources=result["sources"])
+        return CodebaseResponse(
+            answer=result["answer"],
+            sources=result["sources"],
+            documents=result.get("documents", []),
+        )
 
     except HTTPException:
         raise
@@ -91,64 +102,3 @@ async def codebase_query(request: CodebaseRequest) -> CodebaseResponse:
 async def health() -> dict:
     logger.debug("Health check requested")
     return {"status": "ok", "service": "code-bot-api"}
-
-
-class AnalyticsRequest(BaseModel):
-    question: str = Field(..., min_length=1, description="Question about an analytics event")
-    days: Optional[int] = Field(7, ge=1, le=90, description="Number of days to analyze (default: 7)")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "question": "abc 이벤트 분석해줘",
-                "days": 7,
-            }
-        }
-
-
-class AnalyticsResponse(BaseModel):
-    answer: str = Field(..., description="Generated analysis of the event")
-    sources: List[str] = Field(default_factory=list, description="List of source files referenced")
-    event_name: Optional[str] = Field(None, description="Extracted event name")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "answer": "📊 *이벤트 데이터 분석*\n...",
-                "sources": ["app/src/main/kotlin/EventTracker.kt"],
-                "event_name": "abc",
-            }
-        }
-
-
-@router.post("/analytics", response_model=AnalyticsResponse, status_code=status.HTTP_200_OK)
-async def analytics_query(request: AnalyticsRequest) -> AnalyticsResponse:
-    try:
-        logger.info(f"Analytics request: question='{request.question[:100]}...' days={request.days}")
-
-        generator = get_analytics_answer_generator()
-
-        try:
-            result = await generator.generate(request.question, days=request.days or 7)
-            logger.info(f"Analytics complete: event={result.get('event_name')}, sources={len(result.get('sources', []))}")
-        except Exception as e:
-            logger.error(f"Analytics failed: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to analyze event.",
-            ) from e
-
-        return AnalyticsResponse(
-            answer=result["answer"],
-            sources=result.get("sources", []),
-            event_name=result.get("event_name"),
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Unexpected error in analytics endpoint: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred. Please try again later.",
-        ) from e

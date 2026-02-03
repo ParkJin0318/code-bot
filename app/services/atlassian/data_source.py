@@ -1,6 +1,7 @@
 """Atlassian Confluence data source via n8n Gateway."""
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -21,8 +22,18 @@ class ConfluenceDocument:
     space_name: str
 
 
+@dataclass
+class ConfluencePage:
+    """Confluence page content."""
+
+    page_id: str
+    title: str
+    content: str
+    url: str
+
+
 class AtlassianDataSource:
-    """Client for Atlassian Confluence search via n8n Gateway."""
+    """Client for Atlassian Confluence via n8n Gateway."""
 
     _instance: Optional["AtlassianDataSource"] = None
 
@@ -37,33 +48,76 @@ class AtlassianDataSource:
             return
 
         logger.info("Initializing AtlassianDataSource (singleton)...")
-        self.gateway_url = settings.atlassian_gateway_url
+        self.search_url = settings.atlassian_search_url.rstrip("/")
+        self.content_url = settings.atlassian_content_url.rstrip("/")
         self.timeout = 30.0
         self._initialized = True
         logger.info("AtlassianDataSource initialization complete")
+
+    def _extract_page_id(self, url_or_id: str) -> Optional[str]:
+        if url_or_id.isdigit():
+            return url_or_id
+        
+        cloud_match = re.search(r"/pages/(\d+)", url_or_id)
+        if cloud_match:
+            return cloud_match.group(1)
+        
+        dc_match = re.search(r"pageId=(\d+)", url_or_id)
+        if dc_match:
+            return dc_match.group(1)
+        
+        return None
+
+    async def fetch_page(self, page_id_or_url: str) -> Optional[ConfluencePage]:
+        if not self.content_url:
+            logger.warning("Atlassian content URL not configured")
+            return None
+
+        page_id = self._extract_page_id(page_id_or_url)
+        if not page_id:
+            logger.error(f"Could not extract page ID from: {page_id_or_url}")
+            return None
+
+        try:
+            url = f"{self.content_url}/{page_id}"
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                data = response.json()
+
+            page = ConfluencePage(
+                page_id=data.get("page_id", page_id),
+                title=data.get("title", "Untitled"),
+                content=data.get("content", ""),
+                url=f"https://dramancompany.atlassian.net/wiki/pages/{page_id}",
+            )
+            logger.info(f"Fetched Confluence page: {page.title}")
+            return page
+
+        except httpx.TimeoutException:
+            logger.error(f"Timeout while fetching Confluence page: {page_id}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error from Gateway: {e.response.status_code}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching Confluence page: {e}")
+            return None
 
     async def search(
         self,
         query: str,
         limit: int = 5,
     ) -> List[ConfluenceDocument]:
-        """Search Confluence documents via n8n Gateway.
-        
-        Args:
-            query: Search query string
-            limit: Maximum number of results to return
-            
-        Returns:
-            List of ConfluenceDocument objects
-        """
-        if not self.gateway_url:
-            logger.warning("Atlassian gateway URL not configured, skipping search")
+        if not self.search_url:
+            logger.warning("Atlassian search URL not configured, skipping search")
             return []
 
         try:
+            url = self.search_url
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.get(
-                    self.gateway_url,
+                    url,
                     params={
                         "query": query,
                         "limit": limit,
@@ -104,5 +158,4 @@ class AtlassianDataSource:
 
 
 def get_atlassian_data_source() -> AtlassianDataSource:
-    """Get singleton instance of AtlassianDataSource."""
     return AtlassianDataSource()

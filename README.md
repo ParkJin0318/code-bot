@@ -10,6 +10,7 @@ RAG 기반 코드베이스 Q&A 봇
 ### 주요 기능
 
 - **코드베이스 Q&A**: 코드 동작 방식, 정책, 구현 세부사항에 대한 질문 답변
+- **QA 시나리오 생성**: Confluence 기획서 + 코드베이스 분석을 통한 QA 시나리오 자동 생성
 - **Confluence 문서 검색**: 질문과 관련된 Confluence 문서를 자동으로 검색하여 관련 문서로 제공
 
 ## 기술 스택
@@ -33,6 +34,14 @@ RAG 기반 코드베이스 Q&A 봇
 ```
 
 답변에는 참고한 코드 파일과 관련 Confluence 문서 링크가 포함됩니다.
+
+### QA 시나리오 생성
+
+```
+[Confluence 페이지 조회] → [키워드 추출] → [코드베이스 검색] → [기획서 + 코드 분석] → [시나리오 생성]
+```
+
+기획서 내용과 실제 코드베이스를 분석하여 Given-When-Then 형식의 QA 시나리오를 생성합니다.
 
 ---
 
@@ -151,6 +160,34 @@ curl -X POST http://localhost:8000/api/codebase \
 }
 ```
 
+### POST /api/user-scenario
+
+Confluence 기획서 기반 QA 시나리오 생성
+
+```bash
+curl -X POST http://localhost:8000/api/user-scenario \
+  -H "Content-Type: application/json" \
+  -d '{"page_id": "123456789"}'
+```
+
+**Request Body**
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `page_id` | string | N* | Confluence 페이지 ID |
+| `confluence_url` | string | N* | Confluence 페이지 URL |
+| `additional_keywords` | string | N | 추가 검색 키워드 |
+
+> *`page_id` 또는 `confluence_url` 중 하나는 필수
+
+**Response**
+```json
+{
+  "scenario": "📋 QA 시나리오 및 체크리스트...",
+  "sources": ["SignupActivity.kt", "AuthManager.kt"],
+  "keywords_used": "회원가입, signup, 소셜 로그인"
+}
+```
+
 ---
 
 ## 프로젝트 구조
@@ -161,20 +198,22 @@ code-bot/
 │   ├── main.py              # FastAPI 앱 엔트리포인트
 │   ├── config.py            # 환경 설정 (Pydantic Settings)
 │   ├── api/
-│   │   └── routes.py        # API 엔드포인트 (/codebase, /health)
+│   │   └── routes.py        # API 엔드포인트 (/codebase, /user-scenario, /health)
 │   ├── core/
 │   │   ├── index.py         # CodebaseIndexer - 코드베이스 인덱싱
 │   │   └── search.py        # CodebaseSearch - 벡터 검색 + 리랭킹
 │   ├── services/
 │   │   ├── codebase/
 │   │   │   └── answer.py    # CodebaseAnswerGenerator - 코드 Q&A 답변 생성
+│   │   ├── scenario/
+│   │   │   └── generator.py # ScenarioGenerator - QA 시나리오 생성
 │   │   └── atlassian/
-│   │       ├── __init__.py
-│   │       └── data_source.py  # AtlassianDataSource - Confluence 검색 (n8n Gateway)
+│   │       └── data_source.py  # AtlassianDataSource - Confluence 검색/조회
 │   └── prompts/
 │       ├── base.py          # 공통 프롬프트 (Slack 포맷, 보안 규칙, 가이드라인)
 │       ├── codebase.py      # 코드베이스 Q&A 프롬프트
-│       └── keyword.py       # 키워드 추출 및 문서 관련성 판단 프롬프트
+│       ├── keyword.py       # 키워드 추출 및 문서 관련성 판단 프롬프트
+│       └── user_scenario.py # QA 시나리오 생성 프롬프트
 ├── scripts/
 │   └── build_index.py       # 인덱싱 CLI 스크립트
 ├── data/chroma/             # 벡터 DB 저장소 (gitignored)
@@ -226,9 +265,10 @@ code-bot/
 
 | 변수 | 설명 | 예시 |
 |------|------|------|
-| `ATLASSIAN_GATEWAY_URL` | n8n Atlassian Gateway 웹훅 URL | `https://your-n8n.example.com/webhook/atlassian-gateway` |
+| `ATLASSIAN_SEARCH_URL` | Confluence 검색 웹훅 URL | `https://your-n8n.example.com/webhook/atlassian-gateway/search` |
+| `ATLASSIAN_CONTENT_URL` | Confluence 페이지 조회 웹훅 URL | `https://your-n8n.example.com/webhook/atlassian-gateway/content` |
 
-> **참고**: `ATLASSIAN_GATEWAY_URL`을 설정하지 않으면 Confluence 문서 검색 기능이 비활성화됩니다.
+> **참고**: Atlassian URL을 설정하지 않으면 Confluence 문서 검색/조회 기능이 비활성화됩니다.
 
 ### API 설정
 

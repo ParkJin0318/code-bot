@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.core.search import get_search
 from app.services.codebase.answer import get_codebase_answer_generator
+from app.services.scenario import get_scenario_generator
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,85 @@ async def codebase_query(request: CodebaseRequest) -> CodebaseResponse:
         raise
     except Exception as e:
         logger.exception(f"Unexpected error in codebase endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred. Please try again later.",
+        ) from e
+
+
+class UserScenarioRequest(BaseModel):
+    page_id: Optional[str] = Field(None, description="Confluence page ID")
+    confluence_url: Optional[str] = Field(None, description="Confluence page URL")
+    additional_keywords: Optional[str] = Field(None)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "page_id": "123456789",
+                "additional_keywords": "signup, social login",
+            }
+        }
+
+
+class UserScenarioResponse(BaseModel):
+    scenario: str = Field(...)
+    sources: List[str] = Field(default_factory=list)
+    keywords_used: str = Field(...)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "scenario": "📋 QA 시나리오 및 체크리스트...",
+                "sources": ["SignupActivity.kt", "AuthManager.kt"],
+                "keywords_used": "회원가입, signup, 소셜 로그인",
+            }
+        }
+
+
+@router.post("/user-scenario", response_model=UserScenarioResponse, status_code=status.HTTP_200_OK)
+async def user_scenario(request: UserScenarioRequest) -> UserScenarioResponse:
+    try:
+        if not request.page_id and not request.confluence_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="page_id 또는 confluence_url 중 하나는 반드시 입력해야 합니다.",
+            )
+
+        page_identifier = request.page_id or request.confluence_url
+        logger.info(f"User scenario request: page='{page_identifier}'")
+
+        generator = get_scenario_generator()
+
+        try:
+            result = await generator.fetch_and_generate(
+                page_id_or_url=page_identifier,
+                additional_keywords=request.additional_keywords,
+            )
+            if result is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Confluence 페이지를 찾을 수 없습니다. URL 또는 page_id를 확인해주세요.",
+                )
+            logger.info(f"Generated scenario with {len(result['sources'])} code references")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Scenario generation failed: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to generate scenario. Check LLM API availability.",
+            ) from e
+
+        return UserScenarioResponse(
+            scenario=result["scenario"],
+            sources=result["sources"],
+            keywords_used=result["keywords_used"],
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Unexpected error in user-scenario endpoint: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred. Please try again later.",

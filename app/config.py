@@ -29,7 +29,8 @@ class Settings(BaseSettings):
 
     log_level: str
 
-    atlassian_gateway_url: str = ""
+    atlassian_search_url: str = ""
+    atlassian_content_url: str = ""
 
     class Config:
         env_file = ".env"
